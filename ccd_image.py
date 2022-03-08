@@ -135,6 +135,49 @@ class CCDImage:
         # Invert the wavelet transformation.
         self.data = pywt.waverec(new_coeffs, wavelet_choice)
 
+    @property
+    def _pixel_dx(self):
+        """
+        Returns the horizontal distance between each pixel and the beamstop.
+        """
+        horizontal_x = np.arange(0, self.data.shape[1])
+        horizontal_dx = horizontal_x - self.metadata.beam_centre_x
+        pixel_dx = np.zeros_like(self.data)
+        for col in range(self.data.shape[1]):
+            pixel_dx[:, col] = horizontal_dx[col]
+
+        return pixel_dx
+
+    @property
+    def _pixel_dy(self):
+        """
+        Returns the vertical distance between each pixel and the beamstop.
+        """
+        vertical_y = np.arange(self.data.shape[0]-1, -1, -1)
+        vertical_dy = vertical_y - (
+            self.data.shape[0] - 1 - self.metadata.beam_centre_y
+        )
+        pixel_dy = np.zeros_like(self.data)
+        for row in range(self.data.shape[0]):
+            pixel_dy[row, :] = vertical_dy[row]
+
+        return pixel_dy
+
+    @property
+    def pixel_radius(self):
+        """
+        Returns each pixel's radial distance from the beam centre, in units of
+        pixels.
+        """
+        return np.sqrt(np.square(self._pixel_dx) + np.square(self._pixel_dy))
+
+    @property
+    def theta(self):
+        """
+        Returns each pixel's theta value for a polar coordinate mapping.
+        """
+        return np.arctan2(self._pixel_dx, self._pixel_dy)
+
     def init_significant_pixels(self, signal_length_scale: int,
                                 bkg_length_scale: int) -> None:
         """
