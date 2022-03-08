@@ -38,7 +38,8 @@ class Cluster:
         """
         Returns pixel indices in a np.where compatible format.
         """
-        return self._arr[:, 0].astype(np.int64), self._arr[:, 1].astype(np.int64)
+        return (self._arr[:, 0].astype(np.int64),
+                self._arr[:, 1].astype(np.int64))
 
     @classmethod
     def from_DBSCAN(cls, X: np.ndarray, labels_) -> List["Cluster"]:
@@ -55,6 +56,8 @@ class Cluster:
 
         # Populate the list of arrays
         for i, label in enumerate(labels_):
+            if label == -1:
+                continue
             cluster_arrays[label].append((X[i][0], X[i][1]))
 
         return [cls(np.array(arr)) for arr in cluster_arrays]
