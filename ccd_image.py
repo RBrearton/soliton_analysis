@@ -6,10 +6,14 @@ tracking, clustering and data reduction.
 # pylint: disable=invalid-name
 
 from dataclasses import dataclass
+from typing import List
 
 import numpy as np
 import pywt
 from scipy.ndimage import uniform_filter, gaussian_filter
+from sklearn.cluster import DBSCAN
+
+from cluster import Cluster
 
 
 @dataclass
@@ -32,12 +36,18 @@ class CCDImage:
     """
 
     def __init__(self, raw_data: np.ndarray, bkg: np.ndarray,
-                 significance_mask: np.ndarray, metadata: Metadata) -> None:
-        # Save the image as it was stored on disc.
-        self.raw = raw_data
+                 significance_mask: np.ndarray, metadata: Metadata,
+                 store_raw=False) -> None:
         # Save a version of the data that we'll manipulate. We can reset this
         # to self.raw by running self.reset()
-        self.data = np.copy(self.raw)
+        self.data = raw_data
+
+        # Save the image as it was stored on disc, if requested.
+        if store_raw:
+            self.raw = np.copy(raw_data)
+        else:
+            self.raw = None
+
         # Save the rest of the arguments.
         self.bkg = bkg
         self.significance_mask = significance_mask
@@ -142,13 +152,42 @@ class CCDImage:
                 in your detector is probably sensible.
         """
         # Compute local statistics.
-        local_signal = gaussian_filter(self.data, signal_length_scale)
+        local_signal = gaussian_filter(self.data, int(signal_length_scale/3))
         local_bkg_levels = uniform_filter(local_signal, bkg_length_scale)
-        local_deviations = local_signal - local_bkg_levels
+        total_deviaiton = np.std(local_signal)
 
-        # Compute significance; return masked significance.
-        significant_pixels = np.where(local_signal > 2*local_deviations, 0, 1)
+        # Compute significance; return masked significance. Significant iff
+        # pixel is more than 4stddevs larger than the local average.
+        significant_pixels = np.where(
+            local_signal > local_bkg_levels + 4*total_deviaiton, 1, 0)
         self.significant_pixels = significant_pixels*self.significance_mask
+
+    def cluster_significant_pixels(self, signal_length_scale: int,
+                                   bkg_length_scale: int) -> List[Cluster]:
+        """
+        Returns the clustered significant pixels. Does significance calculations
+        if they haven't already been done.
+        """
+        if self.significant_pixels is None:
+            self.init_significant_pixels(signal_length_scale, bkg_length_scale)
+        pixels_y, pixels_x = np.where(self.significant_pixels == 1)
+
+        # Massage these pixels into the form that sklearn wants to see.
+        pixel_coords = np.zeros((len(pixels_x), 2))
+        pixel_coords[:, 0] = pixels_x
+        pixel_coords[:, 1] = pixels_y
+
+        # Don't try to run DBSCAN on nothing!
+        if len(pixel_coords) == 0:
+            return []
+
+        # Run the DBSCAN algorithm, setting eps and min_samples according to our
+        # expected signal_length_scale.
+        dbscan = DBSCAN(
+            eps=signal_length_scale, min_samples=signal_length_scale**2
+        ).fit(pixel_coords)
+
+        return Cluster.from_DBSCAN(pixel_coords, dbscan.labels_)
 
     @property
     def mean_signal_radius(self):
