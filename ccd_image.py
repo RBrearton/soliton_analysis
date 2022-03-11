@@ -12,6 +12,7 @@ import numpy as np
 import pywt
 from scipy.ndimage import uniform_filter, gaussian_filter
 from sklearn.cluster import DBSCAN
+import pyFAI
 
 from cluster import Cluster
 
@@ -171,12 +172,57 @@ class CCDImage:
         """
         return np.sqrt(np.square(self._pixel_dx) + np.square(self._pixel_dy))
 
+    def radial_mask(self, lower_bound: float, upper_bound: float) -> np.ndarray:
+        """
+        Returns a mask array which is true when self.pixel_radius is less than
+        mask_radius.
+
+        Args:
+            lower_bound:
+                The radius below which we want to mask pixels.
+            upper_bound:
+                The radius above which we want to mask pixels.
+
+        Returns:
+            2D boolean mask array. False -> unmasked; True -> masked.
+        """
+        inner_mask = np.where(self.pixel_radius <= lower_bound, True, False)
+        outer_mask = np.where(self.pixel_radius >= upper_bound, True, False)
+        return np.ma.mask_or(inner_mask, outer_mask)
+
     @property
     def theta(self):
         """
         Returns each pixel's theta value for a polar coordinate mapping.
         """
         return np.arctan2(self._pixel_dx, self._pixel_dy)
+
+    def significance_levels(self, signal_length_scale: int,
+                            bkg_length_scale: int) -> np.ndarray:
+        """
+        Returns an image of the local significance level of every pixel in the
+        image.
+
+        Args:
+            signal_length_scale:
+                The length scale over which signal is present. This is usually
+                just a few pixels for typical magnetic diffraction data.
+            bkg_length_scale:
+                The length scale over which background level varies in a CCD
+                image. If your CCD is perfect, you can set this to the number
+                of pixels in a detector, but larger numbers will run more
+                slowly. Typically something like 1/10th of the number of pixels
+                in your detector is probably sensible.
+
+        Returns:
+            Array of standard deviations between the mean and each pixel.
+        """
+        # Compute local statistics.
+        local_signal = gaussian_filter(self.data, int(signal_length_scale/3))
+        local_bkg_levels = uniform_filter(local_signal, bkg_length_scale)
+        total_deviaiton = np.std(local_signal)
+
+        return (local_signal - local_bkg_levels)/total_deviaiton
 
     def init_significant_pixels(self, signal_length_scale: int,
                                 bkg_length_scale: int) -> None:
