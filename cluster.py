@@ -61,3 +61,17 @@ class Cluster:
             cluster_arrays[label].append((X[i][0], X[i][1]))
 
         return [cls(np.array(arr)) for arr in cluster_arrays]
+
+    def intensity(self, arr: np.ndarray) -> float:
+        """
+        Returns the sum of this cluster's pixels in arr.
+
+        Args:
+            arr:
+                The image to sum over.
+
+        Returns:
+            The area underneath this cluster in the image array passed as an
+            argument.
+        """
+        return np.sum(arr[self.pixel_indices])

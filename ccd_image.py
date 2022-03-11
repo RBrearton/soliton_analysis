@@ -12,7 +12,6 @@ import numpy as np
 import pywt
 from scipy.ndimage import uniform_filter, gaussian_filter
 from sklearn.cluster import DBSCAN
-import pyFAI
 
 from cluster import Cluster
 
@@ -222,7 +221,7 @@ class CCDImage:
         local_bkg_levels = uniform_filter(local_signal, bkg_length_scale)
         total_deviaiton = np.std(local_signal)
 
-        return (local_signal - local_bkg_levels)/total_deviaiton
+        return np.abs((local_signal - local_bkg_levels)/total_deviaiton)
 
     def init_significant_pixels(self, signal_length_scale: int,
                                 bkg_length_scale: int) -> None:
@@ -240,15 +239,10 @@ class CCDImage:
                 slowly. Typically something like 1/10th of the number of pixels
                 in your detector is probably sensible.
         """
-        # Compute local statistics.
-        local_signal = gaussian_filter(self.data, int(signal_length_scale/3))
-        local_bkg_levels = uniform_filter(local_signal, bkg_length_scale)
-        total_deviaiton = np.std(local_signal)
-
         # Compute significance; return masked significance. Significant iff
         # pixel is more than 4stddevs larger than the local average.
-        significant_pixels = np.where(
-            local_signal > local_bkg_levels + 4*total_deviaiton, 1, 0)
+        significant_pixels = np.where(self.significance_levels(
+            signal_length_scale, bkg_length_scale) > 4, 1, 0)
         self.significant_pixels = significant_pixels*self.significance_mask
 
     def cluster_significant_pixels(self, signal_length_scale: int,
@@ -256,6 +250,17 @@ class CCDImage:
         """
         Returns the clustered significant pixels. Does significance calculations
         if they haven't already been done.
+
+        Args:
+            signal_length_scale:
+                The length scale over which signal is present. This is usually
+                just a few pixels for typical magnetic diffraction data.
+            bkg_length_scale:
+                The length scale over which background level varies in a CCD
+                image. If your CCD is perfect, you can set this to the number
+                of pixels in a detector, but larger numbers will run more
+                slowly. Typically something like 1/10th of the number of pixels
+                in your detector is probably sensible.
         """
         if self.significant_pixels is None:
             self.init_significant_pixels(signal_length_scale, bkg_length_scale)
@@ -277,6 +282,26 @@ class CCDImage:
         ).fit(pixel_coords)
 
         return Cluster.from_DBSCAN(pixel_coords, dbscan.labels_)
+
+    def mask_from_clusters(self, clusters: List[Cluster]) -> np.ndarray:
+        """
+        Generates a mask array from clusters.
+
+        Args:
+            clusters:
+                A list of the cluster objects that we'll use to generate our
+                mask.
+
+        Returns:
+            A boolean numpy mask array.
+        """
+        # Make an array of zeros; every pixel is a mask by default.
+        mask = np.zeros_like(self.data)
+
+        for cluster in clusters:
+            mask[cluster.pixel_indices[1], cluster.pixel_indices[0]] = 1
+
+        return mask
 
     @property
     def mean_signal_radius(self):
