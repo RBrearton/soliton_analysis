@@ -2,6 +2,8 @@
 Take the necessary utility functions from the playground notebook.
 """
 
+# pylint: disable=invalid-name
+
 import os
 import re
 
@@ -17,12 +19,18 @@ import ccd_image as ccd
 # First construct a path to where the data is stored on my machine.
 LOCAL_DATA_DIR = "/Users/richard/Data/i10/CSL_Feb_2022/azimuthal_scans/"
 
+LOCAL_20K_DIR = "/Users/richard/Data/i10/CSL_Feb_2022/azimuthal_20K/"
+
 # Get all the nexus files and scan directories in the data directory.
 NEXUS_FILES = sorted(
     [f for f in os.listdir(LOCAL_DATA_DIR) if f.endswith('.nxs')]
 )
 SCAN_DIRS = sorted(
     [d for d in os.listdir(LOCAL_DATA_DIR) if d.endswith('files')]
+)
+
+SCAN_DIRS_20K = sorted(
+    [d for d in os.listdir(LOCAL_20K_DIR) if d.endswith('files')]
 )
 
 PONI_PATH = "saxs_calib.poni"
@@ -49,6 +57,9 @@ LOWER_RADIAL_BOUND = (BEAMSTOP_BOTTOM - BEAMSTOP_TOP)*np.sqrt(2)
 UPPER_RADIAL_BOUND = 2000 - BEAM_CENTRE_Y
 
 METADATA = ccd.Metadata(BEAM_CENTRE_X, BEAM_CENTRE_Y)
+
+ANGLES_20K = list(range(0, 180, 15))
+ANGLES_20K.extend(list(range(5, 155, 15)))
 
 
 def name_to_scan_number(dir_or_file_name: str) -> int:
@@ -95,7 +106,7 @@ def _angle_to_scan_no(angle: float) -> int:
     return int(angle/1.5)
 
 
-def get_path(scan_dir: str, field_magnitude: int):
+def get_path(scan_dir: str, field_magnitude: int, t_20K=False):
     """
     Each scan has several .tiff files, one for each field magnitude in
     range(31).
@@ -110,10 +121,12 @@ def get_path(scan_dir: str, field_magnitude: int):
         The path to the corresponding .tiff file.
     """
     local_tiff_name = f"pixis-{field_magnitude}.tiff"
+    if t_20K:
+        return os.path.join(LOCAL_20K_DIR, scan_dir, local_tiff_name)
     return os.path.join(LOCAL_DATA_DIR, scan_dir, local_tiff_name)
 
 
-def get_tiff(scan_dir: str, field_magnitude: int) -> np.ndarray:
+def get_tiff(scan_dir: str, field_magnitude: int, t_20K=False) -> np.ndarray:
     """
     Each scan has several .tiff files, one for each field magnitude in
     range(31).
@@ -123,23 +136,34 @@ def get_tiff(scan_dir: str, field_magnitude: int) -> np.ndarray:
             The name of a scan directory or file.
         field_magnitude:
             The magnitude of the field of interest
+        t_20K:
+            A boolean representing whether or not this .tiff should be from
+            the 20 K dataset.
 
     Returns:
         A numpy array representing the .tiff file.
     """
-    full_tiff_path = get_path(scan_dir, field_magnitude)
+    full_tiff_path = get_path(scan_dir, field_magnitude, t_20K)
     return np.array(Image.open(full_tiff_path)).astype(np.float64)
 
 
-def get_tiff_angle_field(angle: float, field_magnitude: int):
+def get_tiff_angle_field(angle: float, field_magnitude: int, t_20K=False):
     """
     Returns the tiff image at a certain angle and field.
     """
-    scan_dir = SCAN_DIRS[int(angle/1.5)]
-    return get_tiff(scan_dir, field_magnitude)
+    if t_20K:
+        # It's a bit of a more complicated ordeal with this (incomplete) data.
+        if angle not in ANGLES_20K:
+            raise ValueError("Bad angle provided for 20 K scan.")
+        # Get the scan's index in the directory.
+        idx = ANGLES_20K.index(angle)
+        scan_dir = SCAN_DIRS_20K[idx]
+    else:
+        scan_dir = SCAN_DIRS[int(angle/1.5)]
+    return get_tiff(scan_dir, field_magnitude, t_20K)
 
 
-def get_rough_background(scan_dir: str) -> np.ndarray:
+def get_rough_background(scan_dir: str, t_20K=False) -> np.ndarray:
     """
     Assume that we can model the background as an image taken in the field
     polarized state. Assume that we field polarize at the maximum field value
@@ -148,20 +172,32 @@ def get_rough_background(scan_dir: str) -> np.ndarray:
     Args:
         scan_dir:
             The scan directory of interest.
+        t_20K:
+            True if we want background for a 20K scan, False if the high T
+            dataset.
 
     Returns:
         A simple estimate of the background for the images in that scan
         directory.
     """
+    if t_20K:
+        return get_tiff(scan_dir, 70, t_20K)
     return get_tiff(scan_dir, 30)
 
 
-def get_rough_background_angle(field_angle) -> np.ndarray:
+def get_rough_background_angle(field_angle, t_20K=False) -> np.ndarray:
     """
     Assume that we can model the background as an image taken in the field
     polarized state. Assume that we field polarize at the maximum field value
     of 30 mT. In this case, the background is just the 30 mT image; return it.
+
+    If t_20K is True, we take the background to be the 70mT image.
     """
+    if t_20K:
+        idx = ANGLES_20K.index(field_angle)
+        scan_dir = SCAN_DIRS_20K[idx]
+        return get_tiff(scan_dir, 70, t_20K)
+
     scan_dir = SCAN_DIRS[int(field_angle/1.5)]
     return get_tiff(scan_dir, 30)
 
@@ -175,6 +211,8 @@ def imshow(img: np.ndarray, figsize: Tuple[int] = (20, 20),
     ax = fig.add_subplot(111)
     picture = ax.imshow(img, cmap=cmap, **kwargs)
     fig.colorbar(picture, ax=ax)
+
+    plt.title(title)
 
     fig.show()
 
