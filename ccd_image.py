@@ -224,7 +224,8 @@ class CCDImage:
         return np.abs((local_signal - local_bkg_levels)/total_deviaiton)
 
     def init_significant_pixels(self, signal_length_scale: int,
-                                bkg_length_scale: int) -> None:
+                                bkg_length_scale: int,
+                                n_sigma: float = 4) -> None:
         """
         Returns a significance map of the pixels in self.data.
 
@@ -238,15 +239,19 @@ class CCDImage:
                 of pixels in a detector, but larger numbers will run more
                 slowly. Typically something like 1/10th of the number of pixels
                 in your detector is probably sensible.
+            n_sigma:
+                The number of standard deviations above the mean that a pixel
+                needs to be to be considered significant.
         """
         # Compute significance; return masked significance. Significant iff
         # pixel is more than 4stddevs larger than the local average.
         significant_pixels = np.where(self.significance_levels(
-            signal_length_scale, bkg_length_scale) > 4, 1, 0)
+            signal_length_scale, bkg_length_scale) > n_sigma, 1, 0)
         self.significant_pixels = significant_pixels*self.significance_mask
 
     def cluster_significant_pixels(self, signal_length_scale: int,
-                                   bkg_length_scale: int) -> List[Cluster]:
+                                   bkg_length_scale: int,
+                                   n_sigma: float = 4) -> List[Cluster]:
         """
         Returns the clustered significant pixels. Does significance calculations
         if they haven't already been done.
@@ -261,9 +266,13 @@ class CCDImage:
                 of pixels in a detector, but larger numbers will run more
                 slowly. Typically something like 1/10th of the number of pixels
                 in your detector is probably sensible.
+            n_sigma:
+                The number of standard deviations above the mean that a pixel
+                needs to be to be considered significant.
         """
         if self.significant_pixels is None:
-            self.init_significant_pixels(signal_length_scale, bkg_length_scale)
+            self.init_significant_pixels(signal_length_scale, bkg_length_scale,
+                                         n_sigma)
         pixels_y, pixels_x = np.where(self.significant_pixels == 1)
 
         # Massage these pixels into the form that sklearn wants to see.
